@@ -293,7 +293,7 @@ sealed class ObjectRegistry
             ModConsole.Warning("Co-op: " + dropped + " objects have ambiguous ids and will not be synced.");
     }
 
-    void Walk(List<Transform> level, string parentPath)
+    void Walk(List<Transform> level, string parentPath, bool excluded = false)
     {
         var names = new Dictionary<string, int>();
         foreach (var t in level)
@@ -301,18 +301,26 @@ sealed class ObjectRegistry
             names.TryGetValue(t.name, out var n);
             names[t.name] = n + 1;
             var path = (parentPath.Length == 0 ? "" : parentPath + "/") + (n == 0 ? t.name : t.name + "[" + n + "]");
-            if (parentPath.Length == 0 && System.Array.IndexOf(ExcludedRoots, t.name) >= 0)
-                continue;
-            if (t.GetComponent<Rigidbody>() != null && !IsExcluded(t.gameObject))
-                awake.Add(new KeyValuePair<string, GameObject>(path, t.gameObject));
-            CollectFsms(t.gameObject, path, awakeFsms);
+            var inExcluded = excluded || parentPath.Length == 0 && System.Array.IndexOf(ExcludedRoots, t.name) >= 0;
+            if (!inExcluded)
+            {
+                if (t.GetComponent<Rigidbody>() != null && !IsExcluded(t.gameObject))
+                    awake.Add(new KeyValuePair<string, GameObject>(path, t.gameObject));
+                CollectFsms(t.gameObject, path, awakeFsms);
+            }
+            // People and races are simulated on every machine, but the cash a farmer or a rally hands
+            // over must still be taken only once.
+            else if (t.name.StartsWith("PayMoney"))
+            {
+                CollectFsms(t.gameObject, path, awakeFsms);
+            }
 
             if (t.childCount == 0)
                 continue;
             var children = new List<Transform>(t.childCount);
             for (var i = 0; i < t.childCount; i++)
                 children.Add(t.GetChild(i));
-            Walk(children, path);
+            Walk(children, path, inExcluded);
         }
     }
 

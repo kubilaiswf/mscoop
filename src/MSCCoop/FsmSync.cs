@@ -58,7 +58,17 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
     int unsupported;
     FsmFloat money;
     readonly HashSet<PlayMakerFSM> walletSteps = new();
-    readonly Dictionary<PlayMakerFSM, List<KeyValuePair<PlayMakerFSM, string>>> payments = new();
+    readonly Dictionary<PlayMakerFSM, Payment> payments = new();
+
+    // What paying a bill or an order form changes outside the paper: events to the systems that cut
+    // the power or the phone, variables such as the service order and the lottery ticket, and things
+    // it switches on in the world.
+    sealed class Payment
+    {
+        public readonly List<KeyValuePair<PlayMakerFSM, string>> Events = new();
+        public readonly List<NamedVariable> Variables = new();
+        public readonly List<GameObject> Shown = new();
+    }
 
     public int Sent { get; private set; }
     public int Applied { get; private set; }
@@ -349,21 +359,124 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
         return null;
     }
 
-    // A paid bill tells the system that cuts the power or the phone. The paper itself is only open on
-    // the payer's screen, so on the others those messages are sent directly instead of replaying it.
-    void HookPayment(PlayMakerFSM fsm, string state)
+    // The paper is only open on the payer's screen, so on the others its pay state is not replayed:
+    // what it changed elsewhere is read back after it ran and set the same way there.
+    void HookPayment(PlayMakerFSM fsm, string stateName)
     {
-        var sends = new List<KeyValuePair<PlayMakerFSM, string>>();
-        foreach (var action in fsm.GetState(state).Actions)
+        var state = fsm.GetState(stateName);
+        var payment = new Payment();
+        foreach (var action in state.Actions)
         {
-            if (action is not SendEvent send || send.eventTarget.target != FsmEventTarget.EventTarget.GameObjectFSM)
-                continue;
-            var target = FindFsm(send.eventTarget.gameObject.GameObject.Value, send.eventTarget.fsmName.Value);
-            if (target != null)
-                sends.Add(new KeyValuePair<PlayMakerFSM, string>(target, send.sendEvent.Name));
+            switch (action)
+            {
+                case SendEvent send when send.eventTarget.target == FsmEventTarget.EventTarget.GameObjectFSM:
+                    var receiver = FindFsm(Owner(fsm, send.eventTarget.gameObject), send.eventTarget.fsmName.Value);
+                    if (receiver != null)
+                        payment.Events.Add(new KeyValuePair<PlayMakerFSM, string>(receiver, send.sendEvent.Name));
+                    break;
+                case SetFsmBool setBool:
+                    AddVariable(payment, FindFsm(Owner(fsm, setBool.gameObject), setBool.fsmName.Value)?.FsmVariables.FindFsmBool(setBool.variableName.Value));
+                    break;
+                case SetFsmInt setInt:
+                    AddVariable(payment, FindFsm(Owner(fsm, setInt.gameObject), setInt.fsmName.Value)?.FsmVariables.FindFsmInt(setInt.variableName.Value));
+                    break;
+                case SetFsmFloat setFloat:
+                    AddVariable(payment, FindFsm(Owner(fsm, setFloat.gameObject), setFloat.fsmName.Value)?.FsmVariables.FindFsmFloat(setFloat.variableName.Value));
+                    break;
+                // Switching on parts of the paper itself, such as the name on a rally form, stays on the paper.
+                case ActivateGameObject activate when activate.activate.Value:
+                    var shown = Owner(fsm, activate.gameObject);
+                    if (shown != null && shown.transform.root.name != "Sheets")
+                        payment.Shown.Add(shown);
+                    break;
+            }
         }
-        payments[fsm] = sends;
-        HookSteps(fsm, s => s == state);
+        payments[fsm] = payment;
+        fsm.FsmInject(stateName, () => OnLocalPayment(fsm, payment), index: state.Actions.Length);
+    }
+
+    static void AddVariable(Payment payment, NamedVariable variable)
+    {
+        if (variable != null)
+            payment.Variables.Add(variable);
+    }
+
+    static GameObject Owner(PlayMakerFSM fsm, FsmOwnerDefault owner) =>
+        owner.OwnerOption == OwnerDefaultOption.UseOwner ? fsm.gameObject : owner.GameObject.Value;
+
+    void OnLocalPayment(PlayMakerFSM fsm, Payment payment)
+    {
+        if (applying || !Active || !registry.TryGetFsmId(fsm, out var id))
+            return;
+        var w = session.BeginMessage(MessageType.Payment);
+        w.WriteUInt(id);
+        WritePayment(w, payment);
+        session.Broadcast(Channel.Control);
+        Sent++;
+    }
+
+    static void WritePayment(BitWriter w, Payment payment)
+    {
+        foreach (var variable in payment.Variables)
+        {
+            switch (variable)
+            {
+                case FsmBool b:
+                    w.WriteBool(b.Value);
+                    break;
+                case FsmInt i:
+                    w.WriteUInt((uint)i.Value);
+                    break;
+                case FsmFloat f:
+                    w.WriteFloat(f.Value);
+                    break;
+            }
+        }
+    }
+
+    // Both machines know the same pay states, so the values come in the order they were collected.
+    static bool ReadPayment(BitReader r, Payment payment)
+    {
+        foreach (var variable in payment.Variables)
+        {
+            switch (variable)
+            {
+                case FsmBool b:
+                    b.Value = r.ReadBool();
+                    break;
+                case FsmInt i:
+                    i.Value = (int)r.ReadUInt();
+                    break;
+                case FsmFloat f:
+                    f.Value = r.ReadFloat();
+                    break;
+            }
+        }
+        return !r.Overflow;
+    }
+
+    void ApplyPayment(Connection from, uint id, BitReader r)
+    {
+        var fsm = registry.FindFsm(id);
+        if (fsm == null || !payments.TryGetValue(fsm, out var payment))
+        {
+            MarkUnknown("ApplyPayment", id);
+            return;
+        }
+        if (!ReadPayment(r, payment))
+            return;
+        Applied++;
+        if (ShouldRelay)
+        {
+            var w = session.BeginMessage(MessageType.Payment);
+            w.WriteUInt(id);
+            WritePayment(w, payment);
+            session.Broadcast(Channel.Control, from);
+        }
+        foreach (var e in payment.Events)
+            e.Key.SendEvent(e.Value);
+        foreach (var go in payment.Shown)
+            go.SetActive(true);
     }
 
     // Picking a product off a store shelf puts it in the picker's own cart and takes it off the shelf,
@@ -491,13 +604,6 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
             MarkUnknown("ApplyStep", id);
             return;
         }
-        if (payments.TryGetValue(fsm, out var sends))
-        {
-            Applied++;
-            foreach (var send in sends)
-                send.Key.SendEvent(send.Value);
-            return;
-        }
         Apply(fsm, StepEvent + fsm.FsmStates[stateIndex].Name);
     }
 
@@ -602,6 +708,11 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
                     session.Broadcast(Channel.Control, from);
                 }
                 ApplyStep(turnId, turnState);
+                break;
+            case MessageType.Payment:
+                var paymentId = r.ReadUInt();
+                if (!r.Overflow)
+                    ApplyPayment(from, paymentId, r);
                 break;
             case MessageType.ShelfStock:
                 var shelfId = r.ReadUInt();

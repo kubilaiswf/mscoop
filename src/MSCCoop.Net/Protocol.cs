@@ -66,6 +66,7 @@ public enum MessageType : byte
     WorldWake = 63,
     ShelfStock = 64,
     ObjectShown = 65,
+    Payment = 66,
 }
 
 public enum RejectReason : byte
