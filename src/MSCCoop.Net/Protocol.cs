@@ -3,7 +3,7 @@ namespace MSCCoop.Net;
 public static class Protocol
 {
     public const ushort Magic = 0x4D43;
-    public const byte Version = 9;
+    public const byte Version = 10;
     public const int HeaderBits = 24;
     public const int MaxPlayers = 4;
     public const int MaxNameChars = 32;
@@ -65,6 +65,7 @@ public enum MessageType : byte
     HoistAngle = 62,
     WorldWake = 63,
     ShelfStock = 64,
+    ObjectShown = 65,
 }
 
 public enum RejectReason : byte

@@ -25,6 +25,8 @@ sealed class ObjectSync
     const float LoadReach = 0.5f;
     const float PushRange = 10f;
     const float PushMargin = 0.05f;
+    const string DeliveryPrefix = "s:STORE/Boxes/";
+    const double DeliveryCheckInterval = 1;
     const int AttachCheckInterval = 50;
     const int AttachedCountBits = 6;
     const int MaxAttachedPerVehicle = (1 << AttachedCountBits) - 1;
@@ -52,6 +54,9 @@ sealed class ObjectSync
     readonly ObjectRegistry registry = new();
     readonly Ownership table = new();
     readonly List<Connection> pendingSnapshots = new();
+    readonly List<NetObject> deliveries = new();
+    readonly List<bool> delivered = new();
+    double nextDeliveryCheck;
     readonly List<KeyValuePair<uint, OwnerInfo>> released = new();
     readonly List<NetObject> claimNextStep = new();
     readonly List<NetObject> attached = new();
@@ -113,6 +118,7 @@ sealed class ObjectSync
         registry.Build();
         built = true;
         HookPickup();
+        FindDeliveries();
         currentVehicle = PlayMakerGlobals.Instance.Variables.FindFsmString("PlayerCurrentVehicle");
         HookVehicles();
         ModConsole.Print("Co-op: tracking " + registry.Objects.Count + " objects.");
@@ -276,6 +282,11 @@ sealed class ObjectSync
         {
             nextSeatCheck = hostTime + SeatCheckInterval;
             CheckSeats();
+        }
+        if (hostTime >= nextDeliveryCheck)
+        {
+            nextDeliveryCheck = hostTime + DeliveryCheckInterval;
+            CheckDeliveries();
         }
         if (hostTime < nextSend && nextSend - hostTime < 1)
             return;
@@ -562,6 +573,56 @@ sealed class ObjectSync
         session.Broadcast(Channel.Control);
     }
 
+    // Parts ordered by mail come as boxes that are switched on at the post office, but only on the
+    // machine of the player who ordered and paid, since the order form, its timer and the payment are
+    // that player's. A box switched on anywhere is switched on everywhere, where it was put down.
+    void FindDeliveries()
+    {
+        deliveries.Clear();
+        delivered.Clear();
+        foreach (var obj in registry.Objects)
+        {
+            if (!obj.Key.StartsWith(DeliveryPrefix))
+                continue;
+            deliveries.Add(obj);
+            delivered.Add(obj.Go.activeSelf);
+        }
+    }
+
+    void CheckDeliveries()
+    {
+        for (var i = 0; i < deliveries.Count; i++)
+        {
+            var obj = deliveries[i];
+            var shown = obj.Go != null && obj.Go.activeSelf;
+            if (shown && !delivered[i])
+            {
+                var w = session.BeginMessage(MessageType.ObjectShown);
+                w.WriteUInt(obj.Id);
+                ObjectMessages.WritePose(w, ToNet(obj.Go.transform.position), ToNet(obj.Go.transform.rotation));
+                session.Broadcast(Channel.Control);
+            }
+            delivered[i] = shown;
+        }
+    }
+
+    void HandleShown(Connection from, uint id, Vec3 position, Quat rotation)
+    {
+        if (session.IsHost && session.Connections.Count > 1)
+        {
+            var w = session.BeginMessage(MessageType.ObjectShown);
+            w.WriteUInt(id);
+            ObjectMessages.WritePose(w, position, rotation);
+            session.Broadcast(Channel.Control, from);
+        }
+        var index = deliveries.FindIndex(o => o.Id == id);
+        if (index < 0 || deliveries[index].Go == null || deliveries[index].Go.activeSelf)
+            return;
+        delivered[index] = true;
+        deliveries[index].Go.SetActive(true);
+        SetPose(deliveries[index], position, rotation);
+    }
+
     void HandleGone(Connection from, uint id)
     {
         if (session.IsHost && session.Connections.Count > 1)
@@ -832,6 +893,12 @@ sealed class ObjectSync
                 var goneId = r.ReadUInt();
                 if (!r.Overflow)
                     HandleGone(from, goneId);
+                break;
+            case MessageType.ObjectShown:
+                var shownId = r.ReadUInt();
+                ObjectMessages.ReadPose(r, out var shownPosition, out var shownRotation);
+                if (!r.Overflow)
+                    HandleShown(from, shownId, shownPosition, shownRotation);
                 break;
         }
     }
