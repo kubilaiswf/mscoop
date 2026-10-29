@@ -37,6 +37,7 @@ sealed class NetRunner : MonoBehaviour
     readonly MoneySync money = new();
     readonly PhoneSync phone = new();
     SpawnSync spawns;
+    readonly HoistSync hoist = new();
     SharedValueSync shared;
     double simLatency, simJitter, simLoss;
     string statusText = "";
@@ -174,6 +175,7 @@ sealed class NetRunner : MonoBehaviour
         money.Attach(session);
         phone.Attach(session);
         spawns.Attach(session);
+        hoist.Attach(session);
         shared.Attach(session);
         session.PlayerJoined += p => ModConsole.Print("Co-op: " + p.Name + " joined");
         session.PlayerLeft += p => ModConsole.Print("Co-op: " + p.Name + " left");
@@ -203,6 +205,7 @@ sealed class NetRunner : MonoBehaviour
         money.Detach();
         phone.Detach();
         spawns.Detach();
+        hoist.Detach();
         shared.Detach();
         var text = reason == EndReason.Rejected ? "rejected (" + session.LastRejectReason + ")" : reason.ToString();
         ModConsole.Print("Co-op: session ended, " + text);
@@ -260,6 +263,7 @@ sealed class NetRunner : MonoBehaviour
         money.Update();
         shared.Update();
         spawns.Update();
+        hoist.Update();
         profile.Stop();
         profiledFrames++;
         if (overlay && Time.unscaledTime >= nextStatus)
@@ -280,6 +284,7 @@ sealed class NetRunner : MonoBehaviour
         money.OnGameReady();
         phone.OnGameReady();
         spawns.OnGameReady();
+        hoist.OnGameReady();
         shared.OnGameReady();
         flow.OnGameReady();
         players.OnGameReady();
@@ -318,6 +323,7 @@ sealed class NetRunner : MonoBehaviour
         money.OnLevelLoaded();
         phone.OnLevelLoaded();
         spawns.OnLevelLoaded();
+        hoist.OnLevelLoaded();
         shared.OnLevelLoaded();
     }
 
