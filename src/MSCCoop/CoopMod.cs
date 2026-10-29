@@ -17,6 +17,7 @@ public class CoopMod : Mod
     public override string Description => "Co-op multiplayer over Steam.";
 
     NetRunner runner;
+    bool commandAdded;
 
     public override void ModSetup()
     {
@@ -32,11 +33,15 @@ public class CoopMod : Mod
         UnityEngine.Object.DontDestroyOnLoad(go);
         runner = go.AddComponent<NetRunner>();
         runner.Init(Version, ModLoader.GetModSettingsFolder(this));
-        ConsoleCommand.Add(new CoopCommand(runner));
+        // Console commands outlive the runner, which is recreated on every return to the menu.
+        if (commandAdded)
+            return;
+        commandAdded = true;
+        ConsoleCommand.Add(new CoopCommand(() => runner));
     }
 }
 
-class CoopCommand(NetRunner runner) : ConsoleCommand
+class CoopCommand(Func<NetRunner> current) : ConsoleCommand
 {
     public override string Name => "coop";
 
@@ -46,6 +51,7 @@ class CoopCommand(NetRunner runner) : ConsoleCommand
 
     public override void Run(string[] rawArgs)
     {
+        var runner = current();
         var args = Array.FindAll(rawArgs, a => a.Length > 0);
         var verb = args.Length > 0 ? args[0] : "";
         var lan = args.Length > 1 && args[1] == "lan";

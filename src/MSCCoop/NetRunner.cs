@@ -80,6 +80,7 @@ sealed class NetRunner : MonoBehaviour
             lobby.Hosted += () => StartSession(steam, host: true, 0);
             lobby.JoinedAsClient += OnJoinedLobby;
             lobby.Failed += Report;
+            lobby.Warned += Warn;
             lobby.MemberLeft += OnLobbyMemberLeft;
             steam = new SteamTransport(lobby.IsMember);
         }
@@ -87,6 +88,10 @@ sealed class NetRunner : MonoBehaviour
         {
             ModConsole.Warning("Co-op: Steam is not available, only LAN sessions will work. " + e.Message);
         }
+
+        // MOP switches off what is far from the player, which the other players still need in sync.
+        if (ModLoader.IsModPresent("MOP"))
+            Warn("MOP is installed. It switches off things far from you that the other players still use, turn it off for co-op.");
 
         // MSCLoader recreates every mod object on each return to the menu; launch options apply once.
         if (launchOptionsApplied)
@@ -245,6 +250,12 @@ sealed class NetRunner : MonoBehaviour
     {
         Notice = message;
         ModConsole.Error("Co-op: " + message);
+    }
+
+    void Warn(string message)
+    {
+        Notice = message;
+        ModConsole.Warning("Co-op: " + message);
     }
 
     void OnLobbyMemberLeft(ulong user)

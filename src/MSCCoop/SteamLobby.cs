@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using MSCCoop.Net;
+using MSCLoader;
 using Steamworks;
 
 namespace MSCCoop;
@@ -11,6 +12,8 @@ sealed class SteamLobby
     const string BuildKey = "mscc_build";
     const string ProtocolKey = "mscc_protocol";
     const string HostKey = "mscc_host";
+    const string ModsKey = "mscc_mods";
+    const int MaxListedMods = 5;
 
     public sealed class Listing
     {
@@ -49,6 +52,7 @@ sealed class SteamLobby
     public event Action Hosted;
     public event Action<ulong> JoinedAsClient;
     public event Action<string> Failed;
+    public event Action<string> Warned;
     public event Action<ulong> MemberLeft;
 
     public ulong Current { get; private set; }
@@ -180,6 +184,7 @@ sealed class SteamLobby
         SteamMatchmaking.SetLobbyData(lobby, BuildKey, gameBuild.ToString());
         SteamMatchmaking.SetLobbyData(lobby, ProtocolKey, Protocol.Version.ToString());
         SteamMatchmaking.SetLobbyData(lobby, HostKey, hostName);
+        SteamMatchmaking.SetLobbyData(lobby, ModsKey, string.Join(",", ModList()));
         Hosted?.Invoke();
     }
 
@@ -206,8 +211,43 @@ sealed class SteamLobby
             Failed?.Invoke(problem);
             return;
         }
+        var difference = CompareMods(SteamMatchmaking.GetLobbyData(lobby, ModsKey));
+        if (difference != null)
+            Warned?.Invoke(difference);
         JoinedAsClient?.Invoke(owner.m_SteamID);
     }
+
+    // Mods that add objects or change the scene make the players' worlds differ in what can sync.
+    static string[] ModList()
+    {
+        var mods = new List<string>();
+        foreach (var mod in ModLoader.LoadedMods)
+        {
+            if (!mod.isDisabled && !mod.ID.StartsWith("MSCLoader"))
+                mods.Add(mod.ID + " " + mod.Version);
+        }
+        mods.Sort(StringComparer.Ordinal);
+        return mods.ToArray();
+    }
+
+    static string CompareMods(string hostList)
+    {
+        var host = hostList.Length == 0 ? new string[0] : hostList.Split(',');
+        var own = ModList();
+        var missing = Array.FindAll(host, m => Array.IndexOf(own, m) < 0);
+        var extra = Array.FindAll(own, m => Array.IndexOf(host, m) < 0);
+        if (missing.Length == 0 && extra.Length == 0)
+            return null;
+        var text = "Your mods differ from the host's, some things may not sync.";
+        if (missing.Length > 0)
+            text += " Only the host has: " + Names(missing) + ".";
+        if (extra.Length > 0)
+            text += " Only you have: " + Names(extra) + ".";
+        return text;
+    }
+
+    static string Names(string[] mods) =>
+        string.Join(", ", mods, 0, Math.Min(mods.Length, MaxListedMods)) + (mods.Length > MaxListedMods ? " and " + (mods.Length - MaxListedMods) + " more" : "");
 
     void OnMemberChanged(LobbyChatUpdate_t update)
     {
