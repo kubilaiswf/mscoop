@@ -95,7 +95,7 @@ The van (`hayosiko`) drives out of the box, so vehicle scenarios do not need a b
 
 ### World
 
-28. Host sleeps. The client's clock jumps with the host's.
+28. Host sleeps. The client's sky and the wall clock in the house jump to the same time as the host's. Then the client sleeps: its fatigue goes back to zero, but its time stays on the host's.
 29. Wait for the weather to change on the host. The client gets the same weather.
 30. Both run `test money 100` at the same moment. Both wallets go up by 200.
 

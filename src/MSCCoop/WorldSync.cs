@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using HutongGames.PlayMaker;
 using MSCCoop.Net;
 using MSCLoader;
@@ -7,7 +8,9 @@ namespace MSCCoop;
 
 // The host owns time of day and weather. Clients are moved onto the host's two-hour light block
 // through the same WAKEUP event the game uses after sleeping, and onto the host's weather through
-// the state the game uses when it loads weather from a save.
+// the state the game uses when it loads weather from a save. Sleeping only moves time on the host:
+// when the host wakes, every client's world wakes with it, and a client that slept is put back on
+// the host's time.
 sealed class WorldSync
 {
     const double TimeInterval = 1;
@@ -18,11 +21,18 @@ sealed class WorldSync
     const string CrashSitePath = "TRAFFIC/CrashSite";
     const string SpawnCandlesEvent = "SPAWN";
     const int CandleSeed = 1;
+    const string WakeEvent = "WAKEUP";
+
+    // Beds, passing out, being knocked out and being arrested all skip time and wake the world.
+    static readonly string[] WakeFsms = { "Activate", "BackToHome" };
+    static readonly string[] WakeStates = { "Wake up", "Wake up 2" };
 
     Session session;
     bool ready;
     double nextTime;
     double nextWeather;
+    bool hostWoke;
+    bool wokeHere;
 
     PlayMakerFSM color;
     PlayMakerFSM clock;
@@ -108,7 +118,44 @@ sealed class WorldSync
         weather.AddSharedGlobalTransition(WeatherEvent, "Set cloud");
         // The host announces a new weather roll as soon as it happens instead of at the next interval.
         weather.FsmInject("Move clouds", () => nextWeather = 0, index: 0);
+        HookWakes();
         ready = true;
+    }
+
+    void HookWakes()
+    {
+        foreach (PlayMakerFSM fsm in Resources.FindObjectsOfTypeAll(typeof(PlayMakerFSM)))
+        {
+            if (fsm.gameObject.hideFlags != HideFlags.None || System.Array.IndexOf(WakeFsms, fsm.FsmName) < 0)
+                continue;
+            foreach (var state in WakeStates)
+            {
+                if (fsm.GetState(state) != null)
+                    fsm.FsmInject(state, OnLocalWake, index: 0);
+            }
+        }
+    }
+
+    // Runs just before the wake state moves the clock, so the host sends the new time a frame later.
+    void OnLocalWake()
+    {
+        if (session == null)
+            return;
+        if (session.IsHost)
+            hostWoke = true;
+        else
+            wokeHere = true;
+    }
+
+    // The game broadcasts WAKEUP to every FSM after a sleep. The player's own ones (drunkenness, the
+    // bladder, the wanted level) only wake for whoever slept.
+    static void WakeWorld()
+    {
+        foreach (var fsm in new List<PlayMakerFSM>(PlayMakerFSM.FsmList))
+        {
+            if (fsm != null && fsm.transform.root.name != "PLAYER" && fsm.gameObject.name != "PlayerWanted")
+                fsm.SendEvent(WakeEvent);
+        }
     }
 
     public void Update()
@@ -116,10 +163,11 @@ sealed class WorldSync
         if (!ready || session == null || !session.IsHost || session.State != SessionState.Connected)
             return;
         var now = session.Now;
-        if (now >= nextTime)
+        if (now >= nextTime || hostWoke)
         {
             nextTime = now + TimeInterval;
-            var w = session.BeginMessage(MessageType.WorldTime);
+            var w = session.BeginMessage(hostWoke ? MessageType.WorldWake : MessageType.WorldTime);
+            hostWoke = false;
             w.WriteUInt((uint)day.Value);
             w.WriteByte((byte)block.Value);
             w.WriteFloat(blockMinutes.Value);
@@ -148,12 +196,13 @@ sealed class WorldSync
         switch (type)
         {
             case MessageType.WorldTime:
+            case MessageType.WorldWake:
                 var hostDay = (int)r.ReadUInt();
                 var hostBlock = r.ReadByte();
                 var hostBlockMinutes = r.ReadFloat();
                 var hostClockMinutes = r.ReadFloat();
                 if (!r.Overflow && ready)
-                    ApplyTime(hostDay, hostBlock, hostBlockMinutes, hostClockMinutes);
+                    ApplyTime(hostDay, hostBlock, hostBlockMinutes, hostClockMinutes, type == MessageType.WorldWake);
                 break;
             case MessageType.WorldWeather:
                 var x = r.ReadFloat();
@@ -169,15 +218,23 @@ sealed class WorldSync
         }
     }
 
-    void ApplyTime(int hostDay, int hostBlock, float hostBlockMinutes, float hostClockMinutes)
+    void ApplyTime(int hostDay, int hostBlock, float hostBlockMinutes, float hostClockMinutes, bool woke)
     {
         day.Value = hostDay;
-        if (block.Value != hostBlock)
+        if (block.Value != hostBlock || woke)
         {
             block.Value = hostBlock;
-            color.SendEvent("WAKEUP");
-            clock.SendEvent("WAKEUP");
+            if (woke || wokeHere)
+            {
+                WakeWorld();
+            }
+            else
+            {
+                color.SendEvent(WakeEvent);
+                clock.SendEvent(WakeEvent);
+            }
         }
+        wokeHere = false;
         if (Mathf.Abs(blockMinutes.Value - hostBlockMinutes) > MinuteTolerance)
         {
             blockMinutes.Value = hostBlockMinutes;
