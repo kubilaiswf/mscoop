@@ -206,7 +206,10 @@ sealed class ObjectSync
     void UpdateAttachment(NetObject obj, Rigidbody body)
     {
         obj.NextAttachCheck = fixedStep + AttachCheckInterval;
-        var joint = body == null ? null : obj.Go.GetComponent<Joint>();
+        // A joint does not move a kinematic body: the pivot the hoist's chain hangs from holds the hook,
+        // it does not follow it.
+        var gameKinematic = body != null && body.isKinematic && !obj.Proxy && obj.AttachedTo == null;
+        var joint = body == null || gameKinematic ? null : obj.Go.GetComponent<Joint>();
         var parent = joint == null || joint.connectedBody == null ? null : registry.Find(joint.connectedBody.gameObject);
         // A door hinged to a fixed pivot swings on its own and is synced like any free body.
         if (parent == obj || parent?.AttachedTo == obj || parent != null && parent.FixedAnchor)
