@@ -5,16 +5,25 @@ situations most likely to break sync. Each one says what should happen; anything
 
 ## Setup
 
-1. Build the solution. Both `MSCCoop.dll` and `MSCCoop.Recon.dll` are copied into `Mods`.
-2. Host: start the game from Steam and type `coop host lan` in the main menu console.
-3. Client: start a second instance from PowerShell:
+One command builds the solution, starts a host and a client side by side and joins them:
 
-   ```powershell
-   & "<game dir>\mysummercar.exe" -mscloader-sipatch -screen-fullscreen 0 -screen-width 1600 -screen-height 900 -logFile "<game dir>\output_log_client.txt" -coop-lan-join 127.0.0.1
-   ```
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\test-lan.ps1
+```
 
-4. Host clicks Continue; the client follows into the host's save.
-5. On both: `coop log on`.
+It closes the game if it is running, copies `MSCCoop.dll` and `MSCCoop.Recon.dll` into `Mods`,
+and has the host load its save as soon as the client is connected. `-NoBuild` skips the build,
+`-GameDir` points at the game when `Directory.Build.local.props` does not. Both instances run
+without Steam, so Steam lobbies and invites need a second machine.
+
+By hand: start the game, click Host on local network in the co-op panel of the main menu, then
+start a second instance from PowerShell and click Continue on the host:
+
+```powershell
+& "<game dir>\mysummercar.exe" -mscloader-sipatch -screen-fullscreen 0 -screen-width 1600 -screen-height 900 -logFile "<game dir>\output_log_client.txt" -coop-lan-join 127.0.0.1
+```
+
+Run `coop log on` on both to record what is synced.
 
 After each scenario run `coop dump` on both instances and keep both game logs
 (`output_log.txt` and `output_log_client.txt`). A bug report names the scenario number and

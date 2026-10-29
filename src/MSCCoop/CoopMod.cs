@@ -1,7 +1,9 @@
 using System;
 using System.Globalization;
 using System.Net;
+using MSCCoop.Net;
 using MSCLoader;
+using Steamworks;
 using UnityEngine;
 
 namespace MSCCoop;
@@ -53,7 +55,7 @@ class CoopCommand(NetRunner runner) : ConsoleCommand
                 runner.HostLan(Port(args, 2));
                 break;
             case "host":
-                runner.HostSteam();
+                runner.HostSteam(ELobbyType.k_ELobbyTypeFriendsOnly, Protocol.MaxPlayers);
                 break;
             case "join" when lan && args.Length > 2 && IPAddress.TryParse(args[2], out var address):
                 runner.JoinLan(address, Port(args, 3));

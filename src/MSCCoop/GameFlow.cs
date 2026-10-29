@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using MSCCoop.Net;
 using MSCLoader;
@@ -33,6 +34,9 @@ sealed class GameFlow(string clientSaveDir, string backupDir)
     bool startingFromHost;
     bool saveSent;
     bool returnToMenu;
+
+    // Set by -coop-autostart for testing on one machine: the host continues once a client is connected.
+    public bool AutoStart;
 
     static bool InMenu => Application.loadedLevelName == MenuScene;
     static bool InGame => Application.loadedLevelName == GameScene;
@@ -116,7 +120,14 @@ sealed class GameFlow(string clientSaveDir, string backupDir)
     public void Update()
     {
         if (InMenu)
+        {
             SetMenuButtons(session == null || session.IsHost);
+            if (AutoStart && continueFsm != null && session != null && session.IsHost && HasClient())
+            {
+                AutoStart = false;
+                continueFsm.SendEvent(ContinueEvent);
+            }
+        }
 
         if (returnToMenu && InGame && !Application.isLoadingLevel)
         {
@@ -162,24 +173,87 @@ sealed class GameFlow(string clientSaveDir, string backupDir)
     // mode deletes it, so the host's save is copied aside before every game a session starts.
     void BackUpSave()
     {
-        if (session == null || !session.IsHost)
-            return;
-        var dir = Path.Combine(backupDir, DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+        if (session != null && session.IsHost)
+            Backup(prune: true);
+    }
+
+    bool Backup(bool prune)
+    {
+        var dir = Path.Combine(backupDir, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
         try
         {
-            Directory.CreateDirectory(dir);
-            foreach (var path in Directory.GetFiles(Application.persistentDataPath, "*.txt"))
-                File.Copy(path, Path.Combine(dir, Path.GetFileName(path)), true);
-            var backups = Directory.GetDirectories(backupDir);
-            Array.Sort(backups, StringComparer.Ordinal);
-            for (var i = 0; i < backups.Length - BackupsKept; i++)
-                Directory.Delete(backups[i], true);
+            CopySave(Application.persistentDataPath, dir);
+            if (prune)
+            {
+                var backups = Backups();
+                for (var i = BackupsKept; i < backups.Length; i++)
+                    Directory.Delete(backups[i], true);
+            }
             ModConsole.Print("Co-op: save backed up to " + dir);
+            return true;
         }
         catch (Exception e)
         {
             ModConsole.Warning("Co-op: could not back up the save. " + e.Message);
+            return false;
         }
+    }
+
+    // Newest first.
+    public string[] Backups()
+    {
+        if (!Directory.Exists(backupDir))
+            return new string[0];
+        var backups = Directory.GetDirectories(backupDir);
+        Array.Sort(backups, StringComparer.Ordinal);
+        Array.Reverse(backups);
+        return backups;
+    }
+
+    // The save being replaced is backed up first, so a restore can be undone. The menu is reloaded
+    // because it only looks for a save when it opens.
+    public void Restore(string backup)
+    {
+        if (!Backup(prune: false))
+            return;
+        try
+        {
+            foreach (var path in Directory.GetFiles(Application.persistentDataPath, "*.txt"))
+            {
+                if (Path.GetFileName(path) != OwnOptionsFile)
+                    File.Delete(path);
+            }
+            CopySave(backup, Application.persistentDataPath);
+        }
+        catch (Exception e)
+        {
+            ModConsole.Error("Co-op: could not restore the save. " + e.Message);
+            return;
+        }
+        ModConsole.Print("Co-op: save restored from " + backup);
+        Application.LoadLevel(MenuScene);
+    }
+
+    static void CopySave(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var path in Directory.GetFiles(from, "*.txt"))
+        {
+            var name = Path.GetFileName(path);
+            if (name != OwnOptionsFile)
+                File.Copy(path, Path.Combine(to, name), true);
+        }
+    }
+
+    bool HasClient()
+    {
+        var connections = session.Connections;
+        for (var i = 0; i < connections.Count; i++)
+        {
+            if (connections[i].Established)
+                return true;
+        }
+        return false;
     }
 
     void SetMenuButtons(bool enabled)

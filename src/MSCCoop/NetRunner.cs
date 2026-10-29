@@ -39,6 +39,7 @@ sealed class NetRunner : MonoBehaviour
     SpawnSync spawns;
     readonly HoistSync hoist = new();
     SharedValueSync shared;
+    CoopMenu menu;
     double simLatency, simJitter, simLoss;
     string statusText = "";
     readonly Stopwatch profile = new();
@@ -50,6 +51,12 @@ sealed class NetRunner : MonoBehaviour
     double Now => clock.Elapsed.TotalSeconds;
 
     public bool Active => session != null && session.State != SessionState.Idle;
+    public Session Session => session;
+    public SteamLobby Lobby => lobby;
+    public GameFlow Flow => flow;
+
+    // The last thing that went wrong, shown in the co-op menu.
+    public string Notice { get; private set; } = "";
 
     public void Init(string version, string dataDir)
     {
@@ -64,14 +71,15 @@ sealed class NetRunner : MonoBehaviour
         shared = new SharedValueSync(objects.Registry);
         flow = new GameFlow(clientSaveDir, Path.Combine(dataDir, "save-backups"));
         flow.OnLevelLoaded();
+        menu = new CoopMenu(this);
         gameBuild = ComputeGameBuild();
         try
         {
             playerName = SteamFriends.GetPersonaName();
-            lobby = new SteamLobby(modVersion, gameBuild);
+            lobby = new SteamLobby(modVersion, gameBuild, playerName);
             lobby.Hosted += () => StartSession(steam, host: true, 0);
             lobby.JoinedAsClient += OnJoinedLobby;
-            lobby.Failed += message => ModConsole.Error("Co-op: " + message);
+            lobby.Failed += Report;
             lobby.MemberLeft += OnLobbyMemberLeft;
             steam = new SteamTransport(lobby.IsMember);
         }
@@ -94,19 +102,22 @@ sealed class NetRunner : MonoBehaviour
         }
         if (Array.IndexOf(args, "-coop-lan-host") >= 0)
             HostLan(LanTransport.DefaultPort);
+        flow.AutoStart = Array.IndexOf(args, "-coop-autostart") >= 0;
     }
 
-    public void HostSteam()
+    public void HostSteam(ELobbyType type, int maxPlayers)
     {
         if (!RequireSteam() || !RequireIdle())
             return;
-        lobby.Create();
+        Notice = "";
+        lobby.Create(type, maxPlayers);
     }
 
     public void JoinSteam(ulong lobbyId)
     {
         if (!RequireSteam() || !RequireIdle() || !flow.CanJoin())
             return;
+        Notice = "";
         lobby.Join(lobbyId);
     }
 
@@ -120,6 +131,7 @@ sealed class NetRunner : MonoBehaviour
     {
         if (!RequireIdle())
             return;
+        Notice = "";
         lan?.Dispose();
         lan = LanTransport.Listen(port);
         StartSession(lan, host: true, 0);
@@ -129,6 +141,7 @@ sealed class NetRunner : MonoBehaviour
     {
         if (!RequireIdle() || !flow.CanJoin())
             return;
+        Notice = "";
         lan?.Dispose();
         lan = LanTransport.Connect(address, port);
         StartSession(lan, host: false, LanTransport.HostId);
@@ -209,7 +222,29 @@ sealed class NetRunner : MonoBehaviour
         shared.Detach();
         var text = reason == EndReason.Rejected ? "rejected (" + session.LastRejectReason + ")" : reason.ToString();
         ModConsole.Print("Co-op: session ended, " + text);
+        Notice = Describe(reason, session.LastRejectReason);
         lobby?.Leave();
+    }
+
+    static string Describe(EndReason reason, RejectReason reject) => reason switch
+    {
+        EndReason.Left => "",
+        EndReason.HostLeft => "The host closed the session.",
+        EndReason.TimedOut => "Lost the connection.",
+        EndReason.ConnectFailed => "Could not reach the host.",
+        _ => reject switch
+        {
+            RejectReason.Full => "The lobby is full.",
+            RejectReason.InProgress => "The host is already in the game. Join while the host is in the main menu.",
+            RejectReason.GameBuildMismatch => "The host has a different version of the game.",
+            _ => "The host runs a different version of MSC Co-op.",
+        },
+    };
+
+    void Report(string message)
+    {
+        Notice = message;
+        ModConsole.Error("Co-op: " + message);
     }
 
     void OnLobbyMemberLeft(ulong user)
@@ -237,7 +272,7 @@ sealed class NetRunner : MonoBehaviour
     {
         if (steam != null)
             return true;
-        ModConsole.Error("Co-op: Steam is not available.");
+        Report("Steam is not available.");
         return false;
     }
 
@@ -245,7 +280,7 @@ sealed class NetRunner : MonoBehaviour
     {
         if (!Active)
             return true;
-        ModConsole.Error("Co-op: already in a session, use 'coop leave' first.");
+        Report("Already in a session, leave it first.");
         return false;
     }
 
@@ -315,6 +350,8 @@ sealed class NetRunner : MonoBehaviour
     {
         if (session != null)
             session.HoldGameMessages = Application.loadedLevelName == "GAME";
+        if (session != null && session.IsHost)
+            lobby?.SetJoinable(Application.loadedLevelName == "MainMenu");
         flow.OnLevelLoaded();
         players.OnLevelLoaded();
         passenger.OnLevelLoaded();
@@ -331,6 +368,7 @@ sealed class NetRunner : MonoBehaviour
     {
         if (overlay && Active)
             GUI.Label(new Rect(10, 10, 420, 160), statusText);
+        menu.Draw();
     }
 
     string BuildStatus()
@@ -362,7 +400,7 @@ sealed class NetRunner : MonoBehaviour
         return status.ToString();
     }
 
-    Connection FindConnection(ulong id)
+    public Connection FindConnection(ulong id)
     {
         var connections = session.Connections;
         for (var i = 0; i < connections.Count; i++)
