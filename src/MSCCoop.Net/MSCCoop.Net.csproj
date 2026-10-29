@@ -4,7 +4,7 @@
     <TargetFrameworks>net35;net8.0</TargetFrameworks>
     <RootNamespace>MSCCoop.Net</RootNamespace>
     <AssemblyName>MSCCoop.Net</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net35'">

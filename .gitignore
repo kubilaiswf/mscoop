@@ -4,3 +4,4 @@ obj/
 .idea/
 *.user
 Directory.Build.local.props
+dist/

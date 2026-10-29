@@ -12,7 +12,7 @@ public class CoopMod : Mod
 {
     public override string ID => "MSCCoop";
     public override string Name => "MSC Co-op";
-    public override string Version => "0.1.0";
+    public override string Version => "0.2.0";
     public override string Author => "kubilay";
     public override string Description => "Co-op multiplayer over Steam.";
 
