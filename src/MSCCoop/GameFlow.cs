@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using MSCCoop.Net;
@@ -9,8 +10,8 @@ namespace MSCCoop;
 // Starts every player into the host's save. The host's Continue click is mirrored to clients,
 // and clients read and write saves in a scratch folder so their own save is never touched. A new
 // game on the host is mirrored the same way once the game has written its fresh save: clients skip
-// the intro and load that save.
-sealed class GameFlow(string clientSaveDir)
+// the intro and load that save. The host's save is backed up first.
+sealed class GameFlow(string clientSaveDir, string backupDir)
 {
     const string MenuScene = "MainMenu";
     const string GameScene = "GAME";
@@ -19,6 +20,7 @@ sealed class GameFlow(string clientSaveDir)
     const string OwnOptionsFile = "options.txt";
     const string NewGameState = "State 1";
     const string BeginButton = "Licence/Buttons/ButtonBegin";
+    const int BackupsKept = 10;
 
     readonly SaveReceiver receiver = new();
     Session session;
@@ -135,6 +137,7 @@ sealed class GameFlow(string clientSaveDir)
         continueButton = button.GetComponent<Collider>();
         newGameButton = GameObject.Find("Interface/Buttons/ButtonNewgame").GetComponent<Collider>();
         continueFsm.FsmInject(ContinueState, OnContinue, index: 0);
+        continueFsm.FsmInject(ContinueState, BackUpSave, index: 0);
         continueFsm.AddSharedGlobalTransition(ContinueEvent, ContinueState);
         // The licence card that starts a new game is switched off until New Game is clicked, and its
         // FSMs only wake then.
@@ -144,6 +147,7 @@ sealed class GameFlow(string clientSaveDir)
 
     void HookNewGame()
     {
+        BackUpSave();
         var licence = GameObject.Find(BeginButton);
         var fsm = licence == null ? null : licence.GetPlayMaker("SetSize");
         if (fsm == null || fsm == beginFsm)
@@ -152,6 +156,30 @@ sealed class GameFlow(string clientSaveDir)
         // Entered after the old save is deleted and the new player's details are written, just
         // before the intro loads.
         beginFsm.FsmInject(NewGameState, OnContinue, index: 0);
+    }
+
+    // A session can still break things that end up in the save, and a new game or a death in mortal
+    // mode deletes it, so the host's save is copied aside before every game a session starts.
+    void BackUpSave()
+    {
+        if (session == null || !session.IsHost)
+            return;
+        var dir = Path.Combine(backupDir, DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+        try
+        {
+            Directory.CreateDirectory(dir);
+            foreach (var path in Directory.GetFiles(Application.persistentDataPath, "*.txt"))
+                File.Copy(path, Path.Combine(dir, Path.GetFileName(path)), true);
+            var backups = Directory.GetDirectories(backupDir);
+            Array.Sort(backups, StringComparer.Ordinal);
+            for (var i = 0; i < backups.Length - BackupsKept; i++)
+                Directory.Delete(backups[i], true);
+            ModConsole.Print("Co-op: save backed up to " + dir);
+        }
+        catch (Exception e)
+        {
+            ModConsole.Warning("Co-op: could not back up the save. " + e.Message);
+        }
     }
 
     void SetMenuButtons(bool enabled)

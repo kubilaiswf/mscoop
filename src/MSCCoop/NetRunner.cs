@@ -62,7 +62,7 @@ sealed class NetRunner : MonoBehaviour
         fsms = new FsmSync(objects.Registry, objects);
         spawns = new SpawnSync(objects.Registry, fsms);
         shared = new SharedValueSync(objects.Registry);
-        flow = new GameFlow(clientSaveDir);
+        flow = new GameFlow(clientSaveDir, Path.Combine(dataDir, "save-backups"));
         flow.OnLevelLoaded();
         gameBuild = ComputeGameBuild();
         try
