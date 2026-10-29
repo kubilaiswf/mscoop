@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Text;
+using HutongGames.PlayMaker;
 using MSCCoop.Net;
 using MSCLoader;
 using Steamworks;
@@ -337,6 +338,10 @@ sealed class NetRunner : MonoBehaviour
         passenger.OnGameReady();
         if (session != null)
             session.HoldGameMessages = false;
+        // A death in mortal mode deletes the save, and a desync can still kill.
+        var permadeath = PlayMakerGlobals.Instance.Variables.FindFsmBool("PlayerPermaDeath");
+        if (session != null && session.IsHost && permadeath != null && permadeath.Value)
+            Warn("Mortal mode: dying deletes this save. It was backed up when the game started and can be restored from the co-op panel in the main menu.");
     }
 
     void FixedUpdate()
