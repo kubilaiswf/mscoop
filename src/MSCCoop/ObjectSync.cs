@@ -23,6 +23,8 @@ sealed class ObjectSync
     const int VehicleSendDivider = 2;
     const float RpmSmoothing = 0.3f;
     const float LoadReach = 0.5f;
+    const float PushRange = 10f;
+    const float PushMargin = 0.05f;
     const int AttachCheckInterval = 50;
     const int AttachedCountBits = 6;
     const int MaxAttachedPerVehicle = (1 << AttachedCountBits) - 1;
@@ -173,7 +175,7 @@ sealed class ObjectSync
                 && (body.velocity.sqrMagnitude > ClaimSpeed * ClaimSpeed
                     || body.angularVelocity.sqrMagnitude > ClaimAngularSpeed * ClaimAngularSpeed))
             {
-                Claim(obj, held: false);
+                ClaimMoving(obj);
             }
         }
 
@@ -206,7 +208,8 @@ sealed class ObjectSync
         obj.NextAttachCheck = fixedStep + AttachCheckInterval;
         var joint = body == null ? null : obj.Go.GetComponent<Joint>();
         var parent = joint == null || joint.connectedBody == null ? null : registry.Find(joint.connectedBody.gameObject);
-        if (parent == obj || parent?.AttachedTo == obj)
+        // A door hinged to a fixed pivot swings on its own and is synced like any free body.
+        if (parent == obj || parent?.AttachedTo == obj || parent != null && parent.FixedAnchor)
             parent = null;
         if (parent == obj.AttachedTo)
             return;
@@ -628,6 +631,60 @@ sealed class ObjectSync
         w.WriteUInt(obj.Id);
         w.WriteBool(held);
         session.Send(session.HostConnection, Channel.Control);
+    }
+
+    // A proxy is moved kinematically, so here it shoves whatever it touches with unlimited force: a
+    // garage door it brushes is torn off its hinges on this machine only. What a proxy pushes goes to
+    // whoever simulates the proxy, where the push is real.
+    void ClaimMoving(NetObject obj)
+    {
+        var pusher = FindPusher(obj);
+        if (pusher == Ownership.NoOwner)
+        {
+            Claim(obj, held: false);
+            return;
+        }
+        if (!session.IsHost || !table.TryClaim(obj.Id, pusher, false, out var info))
+            return;
+        ApplyOwner(obj, info);
+        BroadcastOwner(obj.Id, info, null);
+    }
+
+    byte FindPusher(NetObject obj)
+    {
+        if (!TryGetBounds(obj.Go, out var bounds))
+            return Ownership.NoOwner;
+        bounds.Expand(PushMargin);
+        var position = obj.Go.transform.position;
+        foreach (var other in registry.Objects)
+        {
+            if (!other.Proxy || other == obj || other.Go == null
+                || (other.Go.transform.position - position).sqrMagnitude > PushRange * PushRange)
+                continue;
+            var root = other;
+            while (root.AttachedTo != null)
+                root = root.AttachedTo;
+            if (root.Owner.IsOwned && root.Owner.Owner != Local && TryGetBounds(other.Go, out var reach) && reach.Intersects(bounds))
+                return root.Owner.Owner;
+        }
+        return Ownership.NoOwner;
+    }
+
+    static bool TryGetBounds(GameObject go, out Bounds bounds)
+    {
+        bounds = default;
+        var found = false;
+        foreach (var collider in go.GetComponentsInChildren<Collider>())
+        {
+            if (collider.isTrigger)
+                continue;
+            if (found)
+                bounds.Encapsulate(collider.bounds);
+            else
+                bounds = collider.bounds;
+            found = true;
+        }
+        return found;
     }
 
     void Release(NetObject obj, bool withPose)

@@ -53,6 +53,7 @@ sealed class NetObject(uint id, GameObject go)
     public readonly int Layer = go.layer;
     public readonly VehicleParts Vehicle = go.GetComponent<CarDynamics>() != null ? new VehicleParts(go) : null;
     public bool IsVehicle => Vehicle != null;
+    public readonly bool FixedAnchor = IsFixedAnchor(go);
     public Collider[] SeatTriggers;
     public Rigidbody Body;
     public int NextBodyCheck;
@@ -79,6 +80,21 @@ sealed class NetObject(uint id, GameObject go)
     public bool HasTarget;
     public Vector3 TargetPosition;
     public Quaternion TargetRotation;
+
+    // A kinematic body with no free body above it never moves, like the pivots the garage doors hang on.
+    static bool IsFixedAnchor(GameObject go)
+    {
+        var body = go.GetComponent<Rigidbody>();
+        if (body == null || !body.isKinematic || go.GetComponent<CarDynamics>() != null)
+            return false;
+        for (var t = go.transform.parent; t != null; t = t.parent)
+        {
+            var above = t.GetComponent<Rigidbody>();
+            if (above != null && !above.isKinematic)
+                return false;
+        }
+        return true;
+    }
 }
 
 // Identifies every synced rigidbody the same way on every machine. Scene objects are keyed by their
