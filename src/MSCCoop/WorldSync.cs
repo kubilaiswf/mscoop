@@ -15,6 +15,9 @@ sealed class WorldSync
     const float MinuteTolerance = 1f;
     const float CloudTolerance = 50f;
     const string WeatherEvent = "MSCCOOP_WEATHER";
+    const string CrashSitePath = "TRAFFIC/CrashSite";
+    const string SpawnCandlesEvent = "SPAWN";
+    const int CandleSeed = 1;
 
     Session session;
     bool ready;
@@ -52,10 +55,25 @@ sealed class WorldSync
 
     public void OnLevelLoaded() => ready = false;
 
+    // In mortal mode candles mark where the player last died, each dropped onto whatever lies under a
+    // random spot near it. Placing them again from one seed puts them in the same places everywhere.
+    static void PlaceCandles()
+    {
+        var site = GameObject.Find(CrashSitePath);
+        var fsm = site == null ? null : site.GetPlayMaker("Candles");
+        if (fsm == null || fsm.ActiveStateName != "State 5" && fsm.ActiveStateName != "State 7")
+            return;
+        var saved = Random.seed;
+        Random.seed = CandleSeed;
+        fsm.SendEvent(SpawnCandlesEvent);
+        Random.seed = saved;
+    }
+
     public void OnGameReady()
     {
         if (session == null)
             return;
+        PlaceCandles();
         var sun = GameObject.Find("MAP/SUN/Pivot/SUN");
         var cloudObject = GameObject.Find("MAP/CloudSystem/Clouds");
         if (sun == null || cloudObject == null)
