@@ -7,7 +7,9 @@ using UnityEngine;
 namespace MSCCoop;
 
 // Starts every player into the host's save. The host's Continue click is mirrored to clients,
-// and clients read and write saves in a scratch folder so their own save is never touched.
+// and clients read and write saves in a scratch folder so their own save is never touched. A new
+// game on the host is mirrored the same way once the game has written its fresh save: clients skip
+// the intro and load that save.
 sealed class GameFlow(string clientSaveDir)
 {
     const string MenuScene = "MainMenu";
@@ -15,11 +17,14 @@ sealed class GameFlow(string clientSaveDir)
     const string ContinueState = "Reset globals 2";
     const string ContinueEvent = "MSCCOOP_CONTINUE";
     const string OwnOptionsFile = "options.txt";
+    const string NewGameState = "State 1";
+    const string BeginButton = "Licence/Buttons/ButtonBegin";
 
     readonly SaveReceiver receiver = new();
     Session session;
     SessionConfig config;
     PlayMakerFSM continueFsm;
+    PlayMakerFSM beginFsm;
     Collider continueButton;
     Collider newGameButton;
     bool saveReady;
@@ -131,6 +136,22 @@ sealed class GameFlow(string clientSaveDir)
         newGameButton = GameObject.Find("Interface/Buttons/ButtonNewgame").GetComponent<Collider>();
         continueFsm.FsmInject(ContinueState, OnContinue, index: 0);
         continueFsm.AddSharedGlobalTransition(ContinueEvent, ContinueState);
+        // The licence card that starts a new game is switched off until New Game is clicked, and its
+        // FSMs only wake then.
+        var newGame = GameObject.Find("Interface/Buttons/ButtonNewgame").GetPlayMaker("SetSize");
+        newGame.FsmInject("State 1", HookNewGame, index: newGame.GetState("State 1").Actions.Length);
+    }
+
+    void HookNewGame()
+    {
+        var licence = GameObject.Find(BeginButton);
+        var fsm = licence == null ? null : licence.GetPlayMaker("SetSize");
+        if (fsm == null || fsm == beginFsm)
+            return;
+        beginFsm = fsm;
+        // Entered after the old save is deleted and the new player's details are written, just
+        // before the intro loads.
+        beginFsm.FsmInject(NewGameState, OnContinue, index: 0);
     }
 
     void SetMenuButtons(bool enabled)
