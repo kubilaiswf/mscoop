@@ -103,7 +103,7 @@ The van (`hayosiko`) drives out of the box, so vehicle scenarios do not need a b
 
 ### Store and saving
 
-33. Client buys a few things at the store, some big (a beer case, a battery) and some that go in the bag. The host sees the same items and the same bag. The host opens the bag: the items that come out appear on the client too, and the bag empties on both. **Known gap:** the shelves are not synced, the client's shelf stays full on the host.
+33. Client buys a few things at the store, some big (a beer case, a battery) and some that go in the bag. The host sees the same items and the same bag. The host opens the bag: the items that come out appear on the client too, and the bag empties on both. The products the client took off the shelf are gone from the host's shelf too, and putting one back (right click) puts it back on both.
 34. Host saves and quits, then hosts again with the client. Parts the client attached and bolted are still there. Saving ends the session for everyone; the client must not use the save toilet.
 35. After a session the client's own save files (`AppData\LocalLow\Amistech\My Summer Car`) have the same modification time as before.
 36. Host clicks Continue in a session. The console prints where the save was backed up, under `Mods\Config\Mod Settings\MSCCoop\save-backups`; only the last ten are kept.

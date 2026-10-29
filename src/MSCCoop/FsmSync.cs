@@ -153,6 +153,9 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
             case "Button" when PaymentState(fsm) is string pay:
                 HookPayment(fsm, pay);
                 break;
+            case "Buy" when fsm.GetState("Remove stock") != null && fsm.GetState("Add stock") != null:
+                HookShelf(fsm);
+                break;
             case "Use" when IsShopBox(fsm):
                 HookSteps(fsm, IsBoxOpenStep);
                 break;
@@ -363,6 +366,63 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
         HookSteps(fsm, s => s == state);
     }
 
+    // Picking a product off a store shelf puts it in the picker's own cart and takes it off the shelf,
+    // which everyone shares. Only the shelf is mirrored, as the absolute count taken, since the
+    // product's own copy of that count is only refreshed when its player picks something.
+    void HookShelf(PlayMakerFSM fsm)
+    {
+        var bought = fsm.FsmVariables.FindFsmInt("Bought");
+        if (bought == null)
+        {
+            unsupported++;
+            return;
+        }
+        foreach (var state in new[] { "Remove stock", "Add stock" })
+            fsm.FsmInject(state, () => OnLocalStock(fsm, bought), index: fsm.GetState(state).Actions.Length);
+    }
+
+    void OnLocalStock(PlayMakerFSM fsm, FsmInt bought)
+    {
+        if (!Active || !registry.TryGetFsmId(fsm, out var id))
+            return;
+        var w = session.BeginMessage(MessageType.ShelfStock);
+        w.WriteUInt(id);
+        w.WriteByte((byte)Mathf.Clamp(bought.Value, 0, byte.MaxValue));
+        session.Broadcast(Channel.Control);
+        Sent++;
+    }
+
+    void ApplyStock(uint id, int bought)
+    {
+        var fsm = registry.FindFsm(id);
+        if (fsm == null)
+        {
+            MarkUnknown("ApplyStock", id);
+            return;
+        }
+        Applied++;
+        var v = fsm.FsmVariables;
+        v.FindFsmInt("Bought").Value = bought;
+        var inventory = v.FindFsmGameObject("Inventory")?.Value;
+        if (inventory != null)
+        {
+            foreach (var table in inventory.GetComponents<PlayMakerHashTableProxy>())
+            {
+                if (table.referenceName == "Bought" && table.hashTable != null)
+                    table.hashTable[fsm.gameObject.name] = bought;
+            }
+        }
+        // The shelf shows one child per product, named by its number, and the first ones go first.
+        var products = v.FindFsmGameObject("ProductList")?.Value;
+        if (products == null)
+            return;
+        foreach (Transform product in products.transform)
+        {
+            if (int.TryParse(product.name, out var number))
+                product.gameObject.SetActive(number > bought);
+        }
+    }
+
     static PlayMakerFSM FindFsm(GameObject go, string name)
     {
         if (go == null)
@@ -542,6 +602,20 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
                     session.Broadcast(Channel.Control, from);
                 }
                 ApplyStep(turnId, turnState);
+                break;
+            case MessageType.ShelfStock:
+                var shelfId = r.ReadUInt();
+                var bought = r.ReadByte();
+                if (r.Overflow)
+                    return;
+                if (ShouldRelay)
+                {
+                    var w = session.BeginMessage(type);
+                    w.WriteUInt(shelfId);
+                    w.WriteByte(bought);
+                    session.Broadcast(Channel.Control, from);
+                }
+                ApplyStock(shelfId, bought);
                 break;
             case MessageType.ToggleState:
                 var toggleId = r.ReadUInt();
