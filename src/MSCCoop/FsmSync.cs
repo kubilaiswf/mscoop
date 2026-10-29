@@ -133,6 +133,12 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
             case "Horn":
                 HookToggle(fsm, HornStates);
                 break;
+            case "Use" when IsJack(fsm) && fsm.GetState("On terrain") != null:
+                HookSteps(fsm, IsCarJackStep);
+                break;
+            case "Use" when IsJack(fsm):
+                HookSteps(fsm, IsFloorJackStep);
+                break;
             case "Use" when IsShopBox(fsm):
                 HookSteps(fsm, IsBoxOpenStep);
                 break;
@@ -271,6 +277,15 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
 
     // A wire end connects in "Sound", which also tells the other end of the wire to close the loop.
     static bool IsWireStep(string state) => state == "Sound";
+
+    // Each pump of the floor jack or the car jack raises it one fixed step, and lowering is one step
+    // too. The car jack checks for terrain before it raises, so its raise is replayed from that check
+    // and its own "Up" follows from there.
+    static bool IsJack(PlayMakerFSM fsm) => fsm.transform.parent != null && fsm.transform.parent.name.EndsWith("jack(itemx)");
+
+    static bool IsFloorJackStep(string state) => state == "Up" || state == "Down";
+
+    static bool IsCarJackStep(string state) => state == "On terrain" || state == "Up 2";
 
     // Opening a delivered box takes the part out, activates it and destroys the box.
     static bool IsShopBox(PlayMakerFSM fsm) => fsm.transform.parent != null && fsm.transform.parent.name == "Boxes";
