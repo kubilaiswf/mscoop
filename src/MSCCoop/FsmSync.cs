@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using HutongGames.PlayMaker;
+using HutongGames.PlayMaker.Actions;
 using MSCCoop.Net;
 using MSCLoader;
 using UnityEngine;
@@ -55,6 +56,9 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
     Session session;
     bool applying;
     int unsupported;
+    FsmFloat money;
+    readonly HashSet<PlayMakerFSM> walletSteps = new();
+    readonly Dictionary<PlayMakerFSM, List<KeyValuePair<PlayMakerFSM, string>>> payments = new();
 
     public int Sent { get; private set; }
     public int Applied { get; private set; }
@@ -106,6 +110,9 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
 
     public void OnGameReady()
     {
+        money = PlayMakerGlobals.Instance.Variables.FindFsmFloat("PlayerMoney");
+        walletSteps.Clear();
+        payments.Clear();
         bolts.Clear();
         toggles.Clear();
         toggleState.Clear();
@@ -138,6 +145,13 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
                 break;
             case "Use" when IsJack(fsm):
                 HookJack(fsm, IsFloorJackStep, "Lifter/lift");
+                break;
+            case "Use" when PayoutState(fsm) is string take:
+                HookSteps(fsm, state => state == take);
+                walletSteps.Add(fsm);
+                break;
+            case "Button" when PaymentState(fsm) is string pay:
+                HookPayment(fsm, pay);
                 break;
             case "Use" when IsShopBox(fsm):
                 HookSteps(fsm, IsBoxOpenStep);
@@ -310,6 +324,57 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
             objects.ClaimLoad(jack, lift);
     }
 
+    // Cash an NPC holds out after a job is there on every machine, and taking it is a click that leads
+    // from "Wait button" into the state adding it to the wallet. Taking it is replayed so the cash is
+    // gone everywhere, without paying again: the wallet is shared.
+    static string PayoutState(PlayMakerFSM fsm) =>
+        fsm.gameObject.name.StartsWith("PayMoney") ? Target(fsm, "Wait button", "USE") : null;
+
+    // Bills and order forms pay in the state "Check money" leads to when the wallet holds enough.
+    static string PaymentState(PlayMakerFSM fsm) => Target(fsm, "Check money", "BUY");
+
+    static string Target(PlayMakerFSM fsm, string from, string eventName)
+    {
+        var state = fsm.GetState(from);
+        if (state == null)
+            return null;
+        foreach (var transition in state.Transitions)
+        {
+            if (transition.EventName == eventName)
+                return transition.ToState;
+        }
+        return null;
+    }
+
+    // A paid bill tells the system that cuts the power or the phone. The paper itself is only open on
+    // the payer's screen, so on the others those messages are sent directly instead of replaying it.
+    void HookPayment(PlayMakerFSM fsm, string state)
+    {
+        var sends = new List<KeyValuePair<PlayMakerFSM, string>>();
+        foreach (var action in fsm.GetState(state).Actions)
+        {
+            if (action is not SendEvent send || send.eventTarget.target != FsmEventTarget.EventTarget.GameObjectFSM)
+                continue;
+            var target = FindFsm(send.eventTarget.gameObject.GameObject.Value, send.eventTarget.fsmName.Value);
+            if (target != null)
+                sends.Add(new KeyValuePair<PlayMakerFSM, string>(target, send.sendEvent.Name));
+        }
+        payments[fsm] = sends;
+        HookSteps(fsm, s => s == state);
+    }
+
+    static PlayMakerFSM FindFsm(GameObject go, string name)
+    {
+        if (go == null)
+            return null;
+        foreach (var fsm in go.GetComponents<PlayMakerFSM>())
+        {
+            if (fsm.FsmName == name)
+                return fsm;
+        }
+        return null;
+    }
+
     // Opening a delivered box takes the part out, activates it and destroys the box.
     static bool IsShopBox(PlayMakerFSM fsm) => fsm.transform.parent != null && fsm.transform.parent.name == "Boxes";
 
@@ -364,6 +429,13 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
         if (fsm == null || stateIndex >= fsm.FsmStates.Length)
         {
             MarkUnknown("ApplyStep", id);
+            return;
+        }
+        if (payments.TryGetValue(fsm, out var sends))
+        {
+            Applied++;
+            foreach (var send in sends)
+                send.Key.SendEvent(send.Value);
             return;
         }
         Apply(fsm, StepEvent + fsm.FsmStates[stateIndex].Name);
@@ -583,6 +655,7 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
     {
         if (Diagnostics.Logging)
             Diagnostics.Log("fsm apply " + registry.FsmKey(fsm) + " " + eventName + " from " + fsm.ActiveStateName);
+        var wallet = walletSteps.Contains(fsm) && money != null ? money.Value : float.NaN;
         applying = true;
         try
         {
@@ -591,6 +664,8 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
         finally
         {
             applying = false;
+            if (!float.IsNaN(wallet))
+                money.Value = wallet;
         }
     }
 }

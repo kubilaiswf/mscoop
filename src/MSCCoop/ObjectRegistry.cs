@@ -322,7 +322,8 @@ sealed class ObjectRegistry
         for (var i = 0; i < fsms.Length; i++)
         {
             var name = fsms[i].FsmName;
-            if (System.Array.IndexOf(TrackedFsms, name) < 0)
+            // Bills and order forms on paper pay through their buttons.
+            if (System.Array.IndexOf(TrackedFsms, name) < 0 && !(name == "Button" && path.StartsWith("Sheets/")))
                 continue;
             var n = 0;
             for (var j = 0; j < i; j++)

@@ -98,10 +98,12 @@ The van (`hayosiko`) drives out of the box, so vehicle scenarios do not need a b
 28. Host sleeps. The client's sky and the wall clock in the house jump to the same time as the host's. Then the client sleeps: its fatigue goes back to zero, but its time stays on the host's.
 29. Wait for the weather to change on the host. The client gets the same weather.
 30. Both run `test money 100` at the same moment. Both wallets go up by 200.
+31. Client finishes a job that pays in cash (the septic tank, firewood, or Jokke's move) and takes the money from the NPC's hand. The wallet goes up once on both; on the host the cash is gone from the NPC's hand.
+32. Host pays the electricity bill and the phone bill from the mail. On the client the power and the phone stay on, and the wallet went down once.
 
 ### Store and saving
 
-31. Client buys a few things at the store, some big (a beer case, a battery) and some that go in the bag. The host sees the same items and the same bag. The host opens the bag: the items that come out appear on the client too, and the bag empties on both. **Known gap:** the shelves are not synced, the client's shelf stays full on the host.
-32. Host saves and quits, then hosts again with the client. Parts the client attached and bolted are still there. Saving ends the session for everyone; the client must not use the save toilet.
-33. After a session the client's own save files (`AppData\LocalLow\Amistech\My Summer Car`) have the same modification time as before.
-34. Host clicks Continue in a session. The console prints where the save was backed up, under `Mods\Config\Mod Settings\MSCCoop\save-backups`; only the last ten are kept.
+33. Client buys a few things at the store, some big (a beer case, a battery) and some that go in the bag. The host sees the same items and the same bag. The host opens the bag: the items that come out appear on the client too, and the bag empties on both. **Known gap:** the shelves are not synced, the client's shelf stays full on the host.
+34. Host saves and quits, then hosts again with the client. Parts the client attached and bolted are still there. Saving ends the session for everyone; the client must not use the save toilet.
+35. After a session the client's own save files (`AppData\LocalLow\Amistech\My Summer Car`) have the same modification time as before.
+36. Host clicks Continue in a session. The console prints where the save was backed up, under `Mods\Config\Mod Settings\MSCCoop\save-backups`; only the last ten are kept.
