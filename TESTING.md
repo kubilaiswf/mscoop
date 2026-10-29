@@ -80,14 +80,16 @@ The van (`hayosiko`) drives out of the box, so vehicle scenarios do not need a b
 23. Start the van's engine, let it idle, switch it off. The other side hears the start, the idle and the stop. Then hand the running van over: the driver gets out with the engine running, the other player gets in and drives off without starting it again.
 24. With the engine running, switch the lights, wipers and hazard lights through every position, crank a window, use the turn signals and hold the horn. The other side sees and hears each one. **Known gap:** with the key at ACC and the engine off nothing that needs power is synced yet.
 
+25. **[lag]** One player jacks up the Satsuma with the floor jack, then the car jack, while the other watches. On both sides the car rises on the jack, stays on it and comes back down when it is lowered.
+
 ### World
 
-25. Host sleeps. The client's clock jumps with the host's.
-26. Wait for the weather to change on the host. The client gets the same weather.
-27. Both run `test money 100` at the same moment. Both wallets go up by 200.
+26. Host sleeps. The client's clock jumps with the host's.
+27. Wait for the weather to change on the host. The client gets the same weather.
+28. Both run `test money 100` at the same moment. Both wallets go up by 200.
 
 ### Store and saving
 
-28. Client buys a few things at the store, some big (a beer case, a battery) and some that go in the bag. The host sees the same items and the same bag. The host opens the bag: the items that come out appear on the client too, and the bag empties on both. **Known gap:** the shelves are not synced, the client's shelf stays full on the host.
-29. Host saves and quits, then hosts again with the client. Parts the client attached and bolted are still there. Saving ends the session for everyone; the client must not use the save toilet.
-30. After a session the client's own save files (`AppData\LocalLow\Amistech\My Summer Car`) have the same modification time as before.
+29. Client buys a few things at the store, some big (a beer case, a battery) and some that go in the bag. The host sees the same items and the same bag. The host opens the bag: the items that come out appear on the client too, and the bag empties on both. **Known gap:** the shelves are not synced, the client's shelf stays full on the host.
+30. Host saves and quits, then hosts again with the client. Parts the client attached and bolted are still there. Saving ends the session for everyone; the client must not use the save toilet.
+31. After a session the client's own save files (`AppData\LocalLow\Amistech\My Summer Car`) have the same modification time as before.

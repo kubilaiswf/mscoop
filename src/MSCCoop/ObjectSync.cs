@@ -22,6 +22,7 @@ sealed class ObjectSync
     const int SnapshotChunk = 400;
     const int VehicleSendDivider = 2;
     const float RpmSmoothing = 0.3f;
+    const float LoadReach = 0.5f;
     const int AttachCheckInterval = 50;
     const int AttachedCountBits = 6;
     const int MaxAttachedPerVehicle = (1 << AttachedCountBits) - 1;
@@ -512,6 +513,32 @@ sealed class ObjectSync
     {
         RefreshBody(obj);
         claimNextStep.Add(obj);
+    }
+
+    // A jack and whatever sits on its lift: the body of a jointed part is the vehicle it is fitted to.
+    public void ClaimLoad(Transform tool, Transform lift)
+    {
+        ClaimForUse(registry.Find(tool.gameObject));
+        foreach (var collider in Physics.OverlapSphere(lift.position, LoadReach))
+        {
+            var body = collider.attachedRigidbody;
+            var load = body == null ? null : registry.Find(body.gameObject);
+            while (load != null && load.AttachedTo != null)
+                load = load.AttachedTo;
+            ClaimForUse(load);
+        }
+    }
+
+    // Never takes an object another player is simulating; one this machine already simulates stays
+    // claimed while it keeps being used.
+    void ClaimForUse(NetObject obj)
+    {
+        if (obj == null)
+            return;
+        if (!obj.Owner.IsOwned)
+            Claim(obj, held: false);
+        else if (obj.Owner.Owner == Local)
+            obj.RestSteps = 0;
     }
 
     // Food that is eaten, bottles that are emptied and parts some assemblies replace with a fixed

@@ -134,10 +134,10 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
                 HookToggle(fsm, HornStates);
                 break;
             case "Use" when IsJack(fsm) && fsm.GetState("On terrain") != null:
-                HookSteps(fsm, IsCarJackStep);
+                HookJack(fsm, IsCarJackStep, "Lift/lift");
                 break;
             case "Use" when IsJack(fsm):
-                HookSteps(fsm, IsFloorJackStep);
+                HookJack(fsm, IsFloorJackStep, "Lifter/lift");
                 break;
             case "Use" when IsShopBox(fsm):
                 HookSteps(fsm, IsBoxOpenStep);
@@ -286,6 +286,29 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
     static bool IsFloorJackStep(string state) => state == "Up" || state == "Down";
 
     static bool IsCarJackStep(string state) => state == "On terrain" || state == "Up 2";
+
+    // A pump raises the car a few centimetres, too slowly for the car's movement to claim it, so every
+    // machine would lift its own copy and the copies drift apart. Whoever pumps takes over the jack
+    // and what rests on it, and the others follow.
+    void HookJack(PlayMakerFSM fsm, System.Func<string, bool> isStep, string liftPath)
+    {
+        HookSteps(fsm, isStep);
+        var jack = fsm.transform.parent;
+        var lift = jack.Find(liftPath);
+        if (lift == null)
+            return;
+        foreach (var state in fsm.FsmStates)
+        {
+            if (isStep(state.Name))
+                fsm.FsmInject(state.Name, () => OnLocalJack(jack, lift), index: 0);
+        }
+    }
+
+    void OnLocalJack(Transform jack, Transform lift)
+    {
+        if (!applying && Active)
+            objects.ClaimLoad(jack, lift);
+    }
 
     // Opening a delivered box takes the part out, activates it and destroys the box.
     static bool IsShopBox(PlayMakerFSM fsm) => fsm.transform.parent != null && fsm.transform.parent.name == "Boxes";
