@@ -190,6 +190,18 @@ sealed class SteamLobby
 
     void OnEntered(LobbyEnter_t result)
     {
+        // Steam reports a refused join through the same callback, with the lobby it was refused.
+        var response = (EChatRoomEnterResponse)result.m_EChatRoomEnterResponse;
+        if (response != EChatRoomEnterResponse.k_EChatRoomEnterResponseSuccess)
+        {
+            Failed?.Invoke(response switch
+            {
+                EChatRoomEnterResponse.k_EChatRoomEnterResponseFull => "The lobby is full.",
+                EChatRoomEnterResponse.k_EChatRoomEnterResponseDoesntExist => "The lobby is gone, the host has left it.",
+                _ => "Steam did not let you into the lobby (" + response + ").",
+            });
+            return;
+        }
         var lobby = new CSteamID(result.m_ulSteamIDLobby);
         var owner = SteamMatchmaking.GetLobbyOwner(lobby);
         if (owner == SteamUser.GetSteamID())
