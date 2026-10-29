@@ -20,6 +20,8 @@ sealed class VehicleParts(GameObject go)
     public readonly List<NetObject> Attached = new();
     public readonly PlayMakerFSM Starter = FindFsms(go, "Starter") is { Count: > 0 } starters ? starters[0] : null;
     public readonly List<PlayMakerFSM> DriverOnly = FindFsms(go, DriverOnlyFsms);
+    public PlayMakerFSM Drive;
+    public int EmptySeatChecks;
     public bool RemoteRunning;
     public bool StartSent;
     public bool DrivetrainWasEnabled;

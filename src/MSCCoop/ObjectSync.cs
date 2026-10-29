@@ -41,7 +41,10 @@ sealed class ObjectSync
     static readonly string[] PickupStates = { "Set pivot", "Set pivot 2", "Tool picked" };
     static readonly string[] DropStates = { "Drop part", "Drop part 2", "Drop tool" };
     const string DriveState = "Player in car";
-    static readonly string[] LeaveStates = { "Create player", "Create player 2" };
+    // Passing out leaves the driver's seat of most vehicles through its own state, not Create player.
+    static readonly string[] LeaveStates = { "Create player", "Create player 2", "Passout" };
+    const string LeaveEvent = "MSCCOOP_LEAVE_SEAT";
+    const double SeatCheckInterval = 1;
 
     readonly ObjectRegistry registry = new();
     readonly Ownership table = new();
@@ -58,6 +61,8 @@ sealed class ObjectSync
     int sendCursor;
     int sendTick;
     double nextSend;
+    double nextSeatCheck;
+    FsmString currentVehicle;
 
     bool Active => session != null && session.State == SessionState.Connected && built;
     byte Local => session.LocalSlot;
@@ -105,6 +110,7 @@ sealed class ObjectSync
         registry.Build();
         built = true;
         HookPickup();
+        currentVehicle = PlayMakerGlobals.Instance.Variables.FindFsmString("PlayerCurrentVehicle");
         HookVehicles();
         ModConsole.Print("Co-op: tracking " + registry.Objects.Count + " objects.");
 
@@ -191,30 +197,31 @@ sealed class ObjectSync
     }
 
     // Body panels, doors, seats, the battery and the fuel tank stay rigidbodies after they are
-    // installed and are jointed to the car. Owned or interpolated apart from the car, a joint pulls
-    // the car towards a part that lags behind it, so they move with whoever owns the car instead.
+    // installed and are jointed to the car, and an engine block on the hoist is jointed to the hoist.
+    // Owned or interpolated apart from what it is jointed to, a joint pulls that body towards a part
+    // that lags behind it, so a jointed part moves with whoever owns the body it hangs on.
     void UpdateAttachment(NetObject obj, Rigidbody body)
     {
         obj.NextAttachCheck = fixedStep + AttachCheckInterval;
         var joint = body == null ? null : obj.Go.GetComponent<Joint>();
-        var vehicle = joint == null || joint.connectedBody == null ? null : registry.Find(joint.connectedBody.gameObject);
-        if (vehicle != null && !vehicle.IsVehicle)
-            vehicle = null;
-        if (vehicle == obj.AttachedTo)
+        var parent = joint == null || joint.connectedBody == null ? null : registry.Find(joint.connectedBody.gameObject);
+        if (parent == obj || parent?.AttachedTo == obj)
+            parent = null;
+        if (parent == obj.AttachedTo)
             return;
         if (Diagnostics.Logging)
-            Diagnostics.Log("attach " + obj.Id.ToString("x8") + " " + obj.Key + " -> " + (vehicle == null ? "none" : vehicle.Key));
+            Diagnostics.Log("attach " + obj.Id.ToString("x8") + " " + obj.Key + " -> " + (parent == null ? "none" : parent.Key));
         if (obj.AttachedTo != null)
             Unattach(obj);
-        if (vehicle == null)
+        if (parent == null)
         {
             EndProxy(obj);
             if (obj.Owner.IsOwned && obj.Owner.Owner != Local)
                 BeginProxy(obj);
             return;
         }
-        obj.AttachedTo = vehicle;
-        vehicle.Vehicle.Attached.Add(obj);
+        obj.AttachedTo = parent;
+        parent.Vehicle?.Attached.Add(obj);
         attached.Add(obj);
         CaptureLocalPose(obj);
         if (obj.Owner.Owner == Local)
@@ -223,7 +230,7 @@ sealed class ObjectSync
 
     void Unattach(NetObject obj)
     {
-        obj.AttachedTo.Vehicle.Attached.Remove(obj);
+        obj.AttachedTo.Vehicle?.Attached.Remove(obj);
         attached.Remove(obj);
         obj.AttachedTo = null;
     }
@@ -258,6 +265,11 @@ sealed class ObjectSync
         if (!Active)
             return;
         var hostTime = session.HostTime;
+        if (hostTime >= nextSeatCheck)
+        {
+            nextSeatCheck = hostTime + SeatCheckInterval;
+            CheckSeats();
+        }
         if (hostTime < nextSend && nextSend - hostTime < 1)
             return;
         nextSend = hostTime + SendInterval;
@@ -807,6 +819,10 @@ sealed class ObjectSync
             foreach (var trigger in obj.SeatTriggers)
                 trigger.enabled = !heldElsewhere;
         }
+        // Two players got in at the same moment and the other one was given the seat.
+        var drive = obj.Vehicle?.Drive;
+        if (heldElsewhere && drive != null && drive.ActiveStateName == DriveState)
+            drive.SendEvent(LeaveEvent);
 
         if (info.IsOwned && info.Owner != Local)
         {
@@ -964,9 +980,41 @@ sealed class ObjectSync
                 var vehicle = obj;
                 fsm.FsmInject(DriveState, () => OnDrive(vehicle, true), index: 0);
                 foreach (var state in LeaveStates)
+                {
+                    if (fsm.GetState(state) == null)
+                        continue;
                     fsm.FsmInject(state, () => OnDrive(vehicle, false), index: 0);
+                    if (obj.Vehicle.Drive == null)
+                        fsm.AddSharedGlobalTransition(LeaveEvent, state);
+                    obj.Vehicle.Drive = fsm;
+                }
                 obj.SeatTriggers = fsm.GetComponents<Collider>();
             }
+        }
+    }
+
+    // A driver who dies or is moved out of the seat by the game never passes the seat's leave state,
+    // and would keep the vehicle locked for everyone. Two checks apart, since the seat is claimed a
+    // moment before the game names the current vehicle.
+    void CheckSeats()
+    {
+        if (currentVehicle == null)
+            return;
+        var seated = !string.IsNullOrEmpty(currentVehicle.Value);
+        foreach (var obj in registry.Objects)
+        {
+            var v = obj.Vehicle;
+            if (v == null || obj.Owner.Owner != Local || !obj.Owner.Held)
+                continue;
+            if (seated)
+            {
+                v.EmptySeatChecks = 0;
+                continue;
+            }
+            if (++v.EmptySeatChecks < 2)
+                continue;
+            v.EmptySeatChecks = 0;
+            Claim(obj, held: false);
         }
     }
 
