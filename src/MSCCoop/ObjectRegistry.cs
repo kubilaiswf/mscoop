@@ -104,7 +104,7 @@ sealed class ObjectRegistry
 {
     // Moved by their own logic on every machine, so each machine would keep claiming them.
     static readonly string[] ExcludedRoots = { "PLAYER", "TRAFFIC", "NPC_CARS", "HUMANS", "RALLY", "TRAIN" };
-    public static readonly string[] TrackedFsms = { "Assembly", "Removal", "Screw", "Use", "Data", "Assemble", "BoltCheck", "Horn", "Knob", "Usage", "Buy" };
+    public static readonly string[] TrackedFsms = { "Assembly", "Removal", "Screw", "Use", "Data", "Assemble", "BoltCheck", "Horn", "Knob", "Usage", "Buy", "UseNew" };
 
     readonly List<KeyValuePair<string, GameObject>> awake = new();
     readonly List<KeyValuePair<string, PlayMakerFSM>> awakeFsms = new();

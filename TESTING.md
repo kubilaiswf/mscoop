@@ -89,7 +89,7 @@ The van (`hayosiko`) drives out of the box, so vehicle scenarios do not need a b
 23. Refuel a vehicle on one side and drive it on the other for a few minutes. Fuel level matches in the dump and drops at the normal rate.
 24. Drive one player far away (another village) while the other stays home, then come back. Nothing has moved or reset at either place. Then the other way round: drive the van more than 300 m away from the other player, park it and walk off. On both sides it stays where it was parked.
 25. Start the van's engine, let it idle, switch it off. The other side hears the start, the idle and the stop. Then hand the running van over: the driver gets out with the engine running, the other player gets in and drives off without starting it again.
-26. With the engine running, switch the lights, wipers and hazard lights through every position, crank a window, use the turn signals and hold the horn. The other side sees and hears each one. **Known gap:** with the key at ACC and the engine off nothing that needs power is synced yet.
+26. With the engine running, switch the lights, wipers and hazard lights through every position, crank a window, use the turn signals and hold the horn. The other side sees and hears each one. Then turn the key to ACC with the engine off and switch the lights and the radio on: the other side sees them on, and they go off on both when the key is pulled out.
 
 27. **[lag]** One player jacks up the Satsuma with the floor jack, then the car jack, while the other watches. On both sides the car rises on the jack, stays on it and comes back down when it is lowered.
 

@@ -18,6 +18,10 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
     const string StageEvent = "MSCCOOP_STAGE";
     const string ToggleEvent = "MSCCOOP_TOGGLE_";
     const string StepEvent = "MSCCOOP_STEP_";
+    const string KeyIdleEvent = "MSCCOOP_KEY_IDLE";
+    const string KeyReleaseEvent = "MSCCOOP_KEY_RELEASE";
+    const string AccState = "ACC on";
+    const string KeyOffState = "Motor OFF";
 
     // Doors, hoods, lids and dashboard switches: each state is one position, and the game moves the
     // part and switches what it controls on entering it, so entering the same state on every
@@ -58,6 +62,8 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
     int unsupported;
     FsmFloat money;
     readonly HashSet<PlayMakerFSM> walletSteps = new();
+    readonly HashSet<PlayMakerFSM> ignitions = new();
+    readonly List<PlayMakerFSM> turningKeys = new();
     readonly Dictionary<PlayMakerFSM, Payment> payments = new();
 
     // What paying a bill or an order form changes outside the paper: events to the systems that cut
@@ -100,6 +106,7 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
     // distance, are entered once the FSM is running again, in the order they arrived.
     public void Update()
     {
+        StopKeysAtAcc();
         if (deferredFsms.Count == 0 || ++frame % DeferredCheckInterval != 0)
             return;
         for (var i = deferredFsms.Count - 1; i >= 0; i--)
@@ -123,6 +130,8 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
         money = PlayMakerGlobals.Instance.Variables.FindFsmFloat("PlayerMoney");
         walletSteps.Clear();
         payments.Clear();
+        ignitions.Clear();
+        turningKeys.Clear();
         bolts.Clear();
         toggles.Clear();
         toggleState.Clear();
@@ -155,6 +164,9 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
                 break;
             case "Use" when IsJack(fsm):
                 HookJack(fsm, IsFloorJackStep, "Lifter/lift");
+                break;
+            case "Use" or "UseNew" when IsIgnition(fsm):
+                HookIgnition(fsm);
                 break;
             case "Use" when PayoutState(fsm) is string take:
                 HookSteps(fsm, state => state == take);
@@ -335,6 +347,55 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
     {
         if (!applying && Active)
             objects.ClaimLoad(jack, lift);
+    }
+
+    // Every vehicle's key goes in, switches the electrics on in "Test" and stops at accessories in
+    // "ACC on"; "Motor OFF" pulls it out. A key left at accessories powers the lights, the radio and
+    // the wipers with the engine off, so its position is shared.
+    static bool IsIgnition(PlayMakerFSM fsm) =>
+        fsm.GetState(AccState) != null && fsm.GetState(KeyOffState) != null && fsm.GetState("Test") != null && fsm.GetState("Shut off") != null;
+
+    void HookIgnition(PlayMakerFSM fsm)
+    {
+        ignitions.Add(fsm);
+        HookSteps(fsm, state => state == AccState || state == KeyOffState);
+        fsm.AddSharedGlobalTransition(StepEvent + KeyInState(fsm), KeyInState(fsm));
+        fsm.AddSharedGlobalTransition(KeyIdleEvent, "Wait button");
+        fsm.AddSharedGlobalTransition(KeyReleaseEvent, "Shut off");
+    }
+
+    // Vehicles that need no key in hand start at the electrics.
+    static string KeyInState(PlayMakerFSM fsm) => fsm.GetState("Sound") != null ? "Sound" : "Test";
+
+    // "ACC on" waits for the mouse to be released and starts the engine if it is held, which it never
+    // is for a key turned by someone else, so the key is stopped there once it arrives.
+    void TurnKeyToAcc(PlayMakerFSM fsm)
+    {
+        var acc = fsm.FsmVariables.FindFsmBool("ACC");
+        if (acc != null && acc.Value)
+            return;
+        Apply(fsm, StepEvent + KeyInState(fsm));
+        if (!turningKeys.Contains(fsm))
+            turningKeys.Add(fsm);
+    }
+
+    void StopKeysAtAcc()
+    {
+        for (var i = turningKeys.Count - 1; i >= 0; i--)
+        {
+            var fsm = turningKeys[i];
+            if (fsm == null)
+            {
+                turningKeys.RemoveAt(i);
+                continue;
+            }
+            var state = fsm.ActiveStateName;
+            if (state != AccState && state != "ACC on 2" && state != "Motor starting")
+                continue;
+            // Past the wait the starter is already turning; "Shut off" lets go of it.
+            fsm.SendEvent(state == "Motor starting" ? KeyReleaseEvent : KeyIdleEvent);
+            turningKeys.RemoveAt(i);
+        }
     }
 
     // Cash an NPC holds out after a job is there on every machine, and taking it is a click that leads
@@ -602,6 +663,11 @@ sealed class FsmSync(ObjectRegistry registry, ObjectSync objects)
         if (fsm == null || stateIndex >= fsm.FsmStates.Length)
         {
             MarkUnknown("ApplyStep", id);
+            return;
+        }
+        if (ignitions.Contains(fsm) && fsm.FsmStates[stateIndex].Name == AccState)
+        {
+            TurnKeyToAcc(fsm);
             return;
         }
         Apply(fsm, StepEvent + fsm.FsmStates[stateIndex].Name);

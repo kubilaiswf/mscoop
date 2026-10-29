@@ -12,20 +12,19 @@ every co-op game, so nothing is lost for good.
 - **Players**: you see each other walk, crouch, look around, give the finger, hitchhike, punch,
   push, smoke and pee, with a name tag over each head.
 - **Items**: picking up, carrying and throwing anything, food and drinks being used up, store
-  purchases and the shopping bag, what is taken off the store shelves.
+  purchases and the shopping bag, what is taken off the store shelves, mail-order packages.
 - **Building the car**: fitting and removing parts, bolts, wiring, carburettor and valve
   adjustments, the floor jack, the car jack and the engine hoist.
-- **Vehicles**: driving, engine sound, lights, wipers, turn signals, horn, doors and windows. A
-  second player can sit in the passenger seat and ride along.
+- **Vehicles**: driving, engine sound, the ignition key, lights, wipers, turn signals, horn, doors
+  and windows. A second player can sit in the passenger seat and ride along.
 - **The world**: time of day, weather, sleeping, phone calls, garage doors, the wallet, job
-  payouts (taken once) and paid bills.
+  payouts (taken once), paid bills, service orders and lottery tickets.
 
 ## Limits of this version
 
 - Joining works only while the host is in the main menu; nobody can join a game in progress.
 - Only the host can save. Saving ends the session for everyone, like it ends the game.
 - Traffic and the people of Peräjärvi are simulated on each player's machine separately.
-- With the key at ACC and the engine off, nothing that runs on the battery is shared.
 - Mods that add objects to the world must be the same for everyone. MOP does not work with
   co-op, turn it off.
 
