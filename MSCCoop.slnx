@@ -2,7 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/MSCCoop.Net/MSCCoop.Net.csproj" />
     <Project Path="src/MSCCoop.Recon/MSCCoop.Recon.csproj" />
-    <Project Path="src/MSCCoop.SecondSatsuma/MSCCoop.SecondSatsuma.csproj" />
     <Project Path="src/MSCCoop/MSCCoop.csproj" />
   </Folder>
   <Folder Name="/tests/">
