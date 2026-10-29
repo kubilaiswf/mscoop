@@ -89,8 +89,21 @@ sealed class GameFlow(string clientSaveDir)
     {
         if (session == null)
             return;
+        if (!session.IsHost)
+            DisableSaving();
         session.BeginMessage(MessageType.Ready);
         session.Broadcast(Channel.Control);
+    }
+
+    // Saving quits to the menu. On a client it would write the scratch copy of the host's save and
+    // drop out of the session, so only the host can save.
+    static void DisableSaving()
+    {
+        foreach (PlayMakerFSM fsm in Resources.FindObjectsOfTypeAll(typeof(PlayMakerFSM)))
+        {
+            if (fsm.gameObject.name == "SAVEGAME" && fsm.FsmName == "Button" && fsm.gameObject.hideFlags == HideFlags.None)
+                fsm.enabled = false;
+        }
     }
 
     public void Update()
